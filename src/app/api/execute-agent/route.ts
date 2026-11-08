@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const ALLOWED_MODELS = ['gemini-3.8-flash', 'gemini-3.1-pro-preview'] as const;
+const ALLOWED_MODELS = ['gemini-3.8-flash'] as const;
 const MAX_SYSTEM_CHARS = 30_000;
 const MAX_PROMPT_CHARS = 200_000;
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -24,10 +24,6 @@ function errorResponse(status: number, message: string): Response {
   });
 }
 
-/**
- * Optimized proxy to Gemini streaming REST API.
- * Uses zero thinking budget for Flash to ensure sub-2-second responses.
- */
 export async function POST(req: Request): Promise<Response> {
   const apiKey = (req.headers.get('x-gemini-api-key') ?? '').trim();
   if (!apiKey) {
@@ -48,10 +44,8 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse(413, 'The prompt is too large.');
   }
 
-  const requestedModel = typeof body.model === 'string' ? body.model : '';
-  const model = (ALLOWED_MODELS as readonly string[]).includes(requestedModel)
-    ? requestedModel
-    : 'gemini-3.8-flash';
+  // Always enforce free-tier flash model
+  const model = 'gemini-3.8-flash';
 
   const temperature =
     typeof body.temperature === 'number' ? Math.min(1, Math.max(0, body.temperature)) : 0.4;
@@ -59,9 +53,6 @@ export async function POST(req: Request): Promise<Response> {
   const generationConfig: Record<string, unknown> = {
     temperature,
     maxOutputTokens: 8192,
-    thinkingConfig: {
-      thinkingBudget: 0, // disables thinking delays for instant responses
-    },
   };
 
   if (body.json === true) {
