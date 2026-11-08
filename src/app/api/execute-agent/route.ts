@@ -10,6 +10,7 @@ interface ExecuteBody {
   prompt?: unknown;
   json?: unknown;
   temperature?: unknown;
+  apiKey?: unknown;
 }
 
 function errorResponse(status: number, message: string): Response {
@@ -22,20 +23,29 @@ function errorResponse(status: number, message: string): Response {
   });
 }
 
-/**
- * High-speed proxy using Groq Cloud API (Llama 3.1 8B Instant - Free Tier).
- */
 export async function POST(req: Request): Promise<Response> {
-  const apiKey = (req.headers.get('x-gemini-api-key') ?? '').trim();
-  if (!apiKey) {
-    return errorResponse(401, 'Missing Groq API key. Add it in Settings.');
-  }
-
-  let body: ExecuteBody;
+  let body: ExecuteBody = {};
   try {
     body = (await req.json()) as ExecuteBody;
   } catch {
     return errorResponse(400, 'Request body must be valid JSON.');
+  }
+
+  // Support all header formats and body fallback
+  const authHeader = req.headers.get('authorization') || '';
+  const bearerKey = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+
+  const apiKey = (
+    req.headers.get('x-groq-api-key') ||
+    req.headers.get('x-gemini-api-key') ||
+    bearerKey ||
+    (typeof body.apiKey === 'string' ? body.apiKey : '')
+  ).trim();
+
+  if (!apiKey) {
+    return errorResponse(401, 'Missing Groq API key. Add it in Settings.');
   }
 
   if (typeof body.systemInstruction !== 'string' || typeof body.prompt !== 'string') {
