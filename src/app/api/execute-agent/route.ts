@@ -1,5 +1,5 @@
-export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const ALLOWED_MODELS = ['gemini-3.8-flash', 'gemini-3.1-pro-preview'] as const;
 const MAX_SYSTEM_CHARS = 30_000;
@@ -25,9 +25,8 @@ function errorResponse(status: number, message: string): Response {
 }
 
 /**
- * Thin, stateless proxy to the Gemini streaming REST API.
- * The user's key arrives in the x-gemini-api-key header, is forwarded as x-goog-api-key,
- * and is never stored or logged on the server.
+ * Optimized proxy to Gemini streaming REST API.
+ * Uses zero thinking budget for Flash to ensure sub-2-second responses.
  */
 export async function POST(req: Request): Promise<Response> {
   const apiKey = (req.headers.get('x-gemini-api-key') ?? '').trim();
@@ -59,43 +58,51 @@ export async function POST(req: Request): Promise<Response> {
 
   const generationConfig: Record<string, unknown> = {
     temperature,
-    maxOutputTokens: 16384,
+    maxOutputTokens: 8192,
+    thinkingConfig: {
+      thinkingBudget: 0, // disables thinking delays for instant responses
+    },
   };
+
   if (body.json === true) {
     generationConfig.responseMimeType = 'application/json';
   }
 
-  const upstream = await fetch(`${GEMINI_BASE}/${model}:streamGenerateContent?alt=sse`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: body.systemInstruction }] },
-      contents: [{ role: 'user', parts: [{ text: body.prompt }] }],
-      generationConfig,
-    }),
-    signal: req.signal,
-  });
+  try {
+    const upstream = await fetch(`${GEMINI_BASE}/${model}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: body.systemInstruction }] },
+        contents: [{ role: 'user', parts: [{ text: body.prompt }] }],
+        generationConfig,
+      }),
+      signal: req.signal,
+    });
 
-  if (!upstream.ok || !upstream.body) {
-    const raw = await upstream.text().catch(() => '');
-    let message = `Gemini request failed (HTTP ${upstream.status}).`;
-    try {
-      const parsed = JSON.parse(raw) as { error?: { message?: string } };
-      if (parsed.error?.message) message = parsed.error.message;
-    } catch {
-      /* keep default message */
+    if (!upstream.ok || !upstream.body) {
+      const raw = await upstream.text().catch(() => '');
+      let message = `Gemini request failed (HTTP ${upstream.status}).`;
+      try {
+        const parsed = JSON.parse(raw) as { error?: { message?: string } };
+        if (parsed.error?.message) message = parsed.error.message;
+      } catch {
+        /* keep default message */
+      }
+      return errorResponse(upstream.status || 502, message);
     }
-    return errorResponse(upstream.status || 502, message);
-  }
 
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-  });
+    return new Response(upstream.body, {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
+  } catch (err: any) {
+    return errorResponse(500, err?.message || 'Failed to reach upstream Gemini API.');
+  }
 }

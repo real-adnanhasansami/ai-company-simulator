@@ -24,8 +24,8 @@ class GeminiError extends Error {
   }
 }
 
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
-const MAX_RETRIES = 3;
+const RETRYABLE_STATUS = new Set([429, 502, 503]);
+const MAX_RETRIES = 1;
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -127,7 +127,7 @@ export async function callGemini(opts: GeminiCallOptions): Promise<GeminiResult>
       if (opts.signal?.aborted) throw error;
       const retryable = error instanceof GeminiError && RETRYABLE_STATUS.has(error.status);
       if (!retryable || attempt >= MAX_RETRIES) throw error;
-      await sleep(2500 * 2 ** attempt, opts.signal);
+      await sleep(1500, opts.signal);
     }
   }
 }
