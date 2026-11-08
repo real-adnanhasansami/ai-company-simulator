@@ -31,7 +31,6 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse(400, 'Request body must be valid JSON.');
   }
 
-  // Support all header formats and body fallback
   const authHeader = req.headers.get('authorization') || '';
   const bearerKey = authHeader.toLowerCase().startsWith('bearer ')
     ? authHeader.slice(7).trim()
@@ -66,7 +65,7 @@ export async function POST(req: Request): Promise<Response> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: 'openai/gpt-oss-20b',
         messages: [
           { role: 'system', content: body.systemInstruction },
           { role: 'user', content: body.prompt },
@@ -86,7 +85,7 @@ export async function POST(req: Request): Promise<Response> {
         const parsed = JSON.parse(raw);
         if (parsed.error?.message) message = parsed.error.message;
       } catch {
-        /* keep default message */
+        /* fallback message */
       }
       return errorResponse(groqResponse.status || 502, message);
     }

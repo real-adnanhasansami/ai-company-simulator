@@ -13,7 +13,7 @@ interface SettingsModalProps {
 
 const KEY_PREFIX = 'gsk_';
 const GROQ_KEYS_URL = 'https://console.groq.com/keys';
-const MODEL_LABEL = 'Llama 3.1 8B Instant';
+const MODEL_LABEL = 'GPT OSS 20B (OpenAI on Groq)';
 
 export default function SettingsModal({ open, settings, onSave, onClose }: SettingsModalProps) {
   const [draftKey, setDraftKey] = useState(settings.apiKey);
