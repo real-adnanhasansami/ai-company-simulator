@@ -1,10 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const ALLOWED_MODELS = ['gemini-3.8-flash'] as const;
 const MAX_SYSTEM_CHARS = 30_000;
 const MAX_PROMPT_CHARS = 200_000;
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 interface ExecuteBody {
   model?: unknown;
@@ -24,10 +22,13 @@ function errorResponse(status: number, message: string): Response {
   });
 }
 
+/**
+ * High-speed proxy using Groq Cloud API (Llama 3.3 70B Versatile).
+ */
 export async function POST(req: Request): Promise<Response> {
   const apiKey = (req.headers.get('x-gemini-api-key') ?? '').trim();
   if (!apiKey) {
-    return errorResponse(401, 'Missing Gemini API key. Add it in Settings.');
+    return errorResponse(401, 'Missing Groq API key. Add it in Settings.');
   }
 
   let body: ExecuteBody;
@@ -44,49 +45,43 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse(413, 'The prompt is too large.');
   }
 
-  // Always enforce free-tier flash model
-  const model = 'gemini-3.8-flash';
-
   const temperature =
     typeof body.temperature === 'number' ? Math.min(1, Math.max(0, body.temperature)) : 0.4;
 
-  const generationConfig: Record<string, unknown> = {
-    temperature,
-    maxOutputTokens: 8192,
-  };
-
-  if (body.json === true) {
-    generationConfig.responseMimeType = 'application/json';
-  }
-
   try {
-    const upstream = await fetch(`${GEMINI_BASE}/${model}:streamGenerateContent?alt=sse`, {
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-goog-api-key': apiKey,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: body.systemInstruction }] },
-        contents: [{ role: 'user', parts: [{ text: body.prompt }] }],
-        generationConfig,
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: body.systemInstruction },
+          { role: 'user', content: body.prompt },
+        ],
+        temperature,
+        max_tokens: 8000,
+        stream: true,
+        ...(body.json === true ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: req.signal,
     });
 
-    if (!upstream.ok || !upstream.body) {
-      const raw = await upstream.text().catch(() => '');
-      let message = `Gemini request failed (HTTP ${upstream.status}).`;
+    if (!groqResponse.ok || !groqResponse.body) {
+      const raw = await groqResponse.text().catch(() => '');
+      let message = `Groq request failed (HTTP ${groqResponse.status}).`;
       try {
-        const parsed = JSON.parse(raw) as { error?: { message?: string } };
+        const parsed = JSON.parse(raw);
         if (parsed.error?.message) message = parsed.error.message;
       } catch {
         /* keep default message */
       }
-      return errorResponse(upstream.status || 502, message);
+      return errorResponse(groqResponse.status || 502, message);
     }
 
-    return new Response(upstream.body, {
+    return new Response(groqResponse.body, {
       status: 200,
       headers: {
         'content-type': 'text/event-stream; charset=utf-8',
@@ -94,6 +89,6 @@ export async function POST(req: Request): Promise<Response> {
       },
     });
   } catch (err: any) {
-    return errorResponse(500, err?.message || 'Failed to reach upstream Gemini API.');
+    return errorResponse(500, err?.message || 'Failed to reach Groq API.');
   }
 }

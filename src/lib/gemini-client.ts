@@ -9,36 +9,11 @@ export interface GeminiCallOptions {
   signal?: AbortSignal;
 }
 
-interface GeminiStreamEvent {
-  candidates?: {
-    content?: { parts?: { text?: string; thought?: boolean }[] };
-    finishReason?: string;
-  }[];
-  error?: { code?: number; message?: string };
-}
-
-class GeminiError extends Error {
+class GroqError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
-    this.name = 'GeminiError';
+    this.name = 'GroqError';
   }
-}
-
-const RETRYABLE_STATUS = new Set([429, 502, 503]);
-const MAX_RETRIES = 1;
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 async function streamOnce(opts: GeminiCallOptions): Promise<GeminiResult> {
@@ -66,10 +41,10 @@ async function streamOnce(opts: GeminiCallOptions): Promise<GeminiResult> {
     } catch {
       /* keep default message */
     }
-    throw new GeminiError(message, response.status);
+    throw new GroqError(message, response.status);
   }
 
-  if (!response.body) throw new GeminiError('Empty response from the model route.', 502);
+  if (!response.body) throw new GroqError('Empty response from the API route.', 502);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -81,22 +56,21 @@ async function streamOnce(opts: GeminiCallOptions): Promise<GeminiResult> {
     const line = rawLine.trim();
     if (!line.startsWith('data:')) return;
     const payload = line.slice(5).trim();
-    if (!payload) return;
+    if (!payload || payload === '[DONE]') return;
 
-    let event: GeminiStreamEvent;
     try {
-      event = JSON.parse(payload) as GeminiStreamEvent;
+      const event = JSON.parse(payload);
+      // Handles Groq / OpenAI stream chunk
+      const delta = event.choices?.[0]?.delta?.content;
+      if (typeof delta === 'string') {
+        text += delta;
+      }
+      if (event.choices?.[0]?.finish_reason) {
+        finishReason = event.choices[0].finish_reason;
+      }
     } catch {
       return;
     }
-    if (event.error) {
-      throw new GeminiError(event.error.message ?? 'Gemini stream error.', event.error.code ?? 500);
-    }
-    const candidate = event.candidates?.[0];
-    for (const part of candidate?.content?.parts ?? []) {
-      if (!part.thought && typeof part.text === 'string') text += part.text;
-    }
-    if (candidate?.finishReason) finishReason = candidate.finishReason;
   };
 
   for (;;) {
@@ -114,20 +88,11 @@ async function streamOnce(opts: GeminiCallOptions): Promise<GeminiResult> {
   if (buffer.trim()) handleLine(buffer);
 
   if (!text.trim()) {
-    throw new GeminiError(`The model returned no text (finish reason: ${finishReason ?? 'unknown'}).`, 502);
+    throw new GroqError(`The model returned no text (finish reason: ${finishReason ?? 'unknown'}).`, 502);
   }
   return { text, finishReason };
 }
 
 export async function callGemini(opts: GeminiCallOptions): Promise<GeminiResult> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await streamOnce(opts);
-    } catch (error) {
-      if (opts.signal?.aborted) throw error;
-      const retryable = error instanceof GeminiError && RETRYABLE_STATUS.has(error.status);
-      if (!retryable || attempt >= MAX_RETRIES) throw error;
-      await sleep(1500, opts.signal);
-    }
-  }
+  return await streamOnce(opts);
 }
