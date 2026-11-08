@@ -13,7 +13,7 @@ interface SettingsModalProps {
 
 const KEY_PREFIX = 'gsk_';
 const GROQ_KEYS_URL = 'https://console.groq.com/keys';
-const MODEL_LABEL = 'llama-3.3-70b-versatile';
+const MODEL_LABEL = 'Llama 3.1 8B Instant';
 
 export default function SettingsModal({ open, settings, onSave, onClose }: SettingsModalProps) {
   const [draftKey, setDraftKey] = useState(settings.apiKey);
