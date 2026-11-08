@@ -16,7 +16,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
-  model: 'gemini-2.5-flash',
+  model: 'gemini-3.8-flash',
 };
 
 export interface LoadedCompany {
@@ -35,7 +35,7 @@ export function loadSettings(): AppSettings {
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     return {
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
-      model: parsed.model === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash',
+      model: parsed.model === 'gemini-3.1-pro-preview' ? 'gemini-3.1-pro-preview' : 'gemini-3.8-flash',
     };
   } catch {
     return DEFAULT_SETTINGS;

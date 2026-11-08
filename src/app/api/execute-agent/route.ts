@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'] as const;
+const ALLOWED_MODELS = ['gemini-3.8-flash', 'gemini-3.1-pro-preview'] as const;
 const MAX_SYSTEM_CHARS = 30_000;
 const MAX_PROMPT_CHARS = 200_000;
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -52,7 +52,7 @@ export async function POST(req: Request): Promise<Response> {
   const requestedModel = typeof body.model === 'string' ? body.model : '';
   const model = (ALLOWED_MODELS as readonly string[]).includes(requestedModel)
     ? requestedModel
-    : 'gemini-2.5-flash';
+    : 'gemini-3.8-flash';
 
   const temperature =
     typeof body.temperature === 'number' ? Math.min(1, Math.max(0, body.temperature)) : 0.4;

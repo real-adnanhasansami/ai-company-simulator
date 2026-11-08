@@ -13,7 +13,7 @@ export type CompanyPhase =
 export type RoomKind = 'boardroom' | 'department';
 export type MessageKind = 'command' | 'speech' | 'system' | 'deliverable' | 'handover';
 export type DeliverableKind = 'code' | 'document';
-export type ModelId = 'gemini-2.5-flash' | 'gemini-2.5-pro';
+export type ModelId = 'gemini-3.8-flash' | 'gemini-3.1-pro-preview';
 export type PromptStage = 'strategy' | 'architecture' | 'breakdown';
 
 export interface AgentRecord {

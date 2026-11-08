@@ -13,8 +13,8 @@ interface SettingsModalProps {
 }
 
 const MODELS: { id: ModelId; label: string; note: string }[] = [
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', note: 'Fastest. Best for most runs.' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', note: 'Deeper reasoning. Slower, with a tighter free quota.' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 2.5 Flash', note: 'Fastest. Best for most runs.' },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 2.5 Pro', note: 'Deeper reasoning. Slower, with a tighter free quota.' },
 ];
 
 export default function SettingsModal({ open, settings, onSave, onClose }: SettingsModalProps) {
