@@ -1,18 +1,21 @@
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const MAX_SYSTEM_CHARS = 30_000;
 const MAX_PROMPT_CHARS = 200_000;
+const MAX_OUTPUT_TOKENS = 8192;
 
 interface ExecuteBody {
-  model?: unknown;
   systemInstruction?: unknown;
   prompt?: unknown;
   json?: unknown;
   temperature?: unknown;
 }
 
-function errorResponse(status: number, message: string): Response {
+function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: { message } }), {
     status,
     headers: {
@@ -22,73 +25,92 @@ function errorResponse(status: number, message: string): Response {
   });
 }
 
+async function readUpstreamError(response: Response): Promise<string> {
+  const raw = await response.text().catch(() => '');
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: unknown } };
+    if (typeof parsed.error?.message === 'string' && parsed.error.message.trim()) {
+      return parsed.error.message;
+    }
+  } catch {
+    /* body was not JSON; fall through to the generic message */
+  }
+  return `Groq request failed (HTTP ${response.status}).`;
+}
+
 /**
- * High-speed proxy using Groq Cloud API (Llama 3.3 70B Versatile).
+ * Stateless proxy to Groq's OpenAI-compatible streaming chat endpoint.
+ * The user's key arrives in the x-groq-api-key header, is forwarded as a Bearer token,
+ * and is never stored or logged on the server.
  */
 export async function POST(req: Request): Promise<Response> {
-  const apiKey = (req.headers.get('x-gemini-api-key') ?? '').trim();
-  if (!apiKey) {
-    return errorResponse(401, 'Missing Groq API key. Add it in Settings.');
+  const apiKey = (req.headers.get('x-groq-api-key') ?? '').trim();
+  if (!apiKey || apiKey.length > 256 || /\s/.test(apiKey)) {
+    return jsonError(401, 'Missing or malformed Groq API key. Add it in Settings.');
   }
 
   let body: ExecuteBody;
   try {
     body = (await req.json()) as ExecuteBody;
   } catch {
-    return errorResponse(400, 'Request body must be valid JSON.');
+    return jsonError(400, 'Request body must be valid JSON.');
   }
 
+  if (typeof body !== 'object' || body === null) {
+    return jsonError(400, 'Request body must be a JSON object.');
+  }
   if (typeof body.systemInstruction !== 'string' || typeof body.prompt !== 'string') {
-    return errorResponse(400, 'systemInstruction and prompt are required strings.');
+    return jsonError(400, 'systemInstruction and prompt are required strings.');
   }
   if (body.systemInstruction.length > MAX_SYSTEM_CHARS || body.prompt.length > MAX_PROMPT_CHARS) {
-    return errorResponse(413, 'The prompt is too large.');
+    return jsonError(413, 'The prompt is too large.');
   }
 
+  const json = body.json === true;
   const temperature =
-    typeof body.temperature === 'number' ? Math.min(1, Math.max(0, body.temperature)) : 0.4;
+    typeof body.temperature === 'number' && Number.isFinite(body.temperature)
+      ? Math.min(1, Math.max(0, body.temperature))
+      : 0.5;
 
+  const payload = {
+    model: GROQ_MODEL,
+    stream: true,
+    temperature,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    messages: [
+      { role: 'system', content: body.systemInstruction },
+      { role: 'user', content: body.prompt },
+    ],
+    ...(json ? { response_format: { type: 'json_object' } } : {}),
+  };
+
+  let upstream: Response;
   try {
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    upstream = await fetch(GROQ_CHAT_URL, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        accept: 'text/event-stream',
+        authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: body.systemInstruction },
-          { role: 'user', content: body.prompt },
-        ],
-        temperature,
-        max_tokens: 8000,
-        stream: true,
-        ...(body.json === true ? { response_format: { type: 'json_object' } } : {}),
-      }),
+      body: JSON.stringify(payload),
       signal: req.signal,
     });
-
-    if (!groqResponse.ok || !groqResponse.body) {
-      const raw = await groqResponse.text().catch(() => '');
-      let message = `Groq request failed (HTTP ${groqResponse.status}).`;
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.error?.message) message = parsed.error.message;
-      } catch {
-        /* keep default message */
-      }
-      return errorResponse(groqResponse.status || 502, message);
-    }
-
-    return new Response(groqResponse.body, {
-      status: 200,
-      headers: {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-store',
-      },
-    });
-  } catch (err: any) {
-    return errorResponse(500, err?.message || 'Failed to reach Groq API.');
+  } catch {
+    if (req.signal.aborted) return jsonError(499, 'Request cancelled.');
+    return jsonError(502, 'Could not reach Groq. Check your connection and try again.');
   }
+
+  if (!upstream.ok || !upstream.body) {
+    const message = await readUpstreamError(upstream);
+    return jsonError(upstream.status || 502, message);
+  }
+
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  });
 }

@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Eye, EyeOff, KeyRound, X } from 'lucide-react';
+import { Eye, EyeOff, ExternalLink, KeyRound, X } from 'lucide-react';
 import type { AppSettings } from '@/lib/storage';
-import type { ModelId } from '@/lib/types';
 
 interface SettingsModalProps {
   open: boolean;
@@ -12,21 +11,17 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-const MODELS: { id: ModelId; label: string; note: string }[] = [
-  { id: 'gemini-3.8-flash', label: 'Gemini 2.5 Flash', note: 'Fastest. Best for most runs.' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 2.5 Pro', note: 'Deeper reasoning. Slower, with a tighter free quota.' },
-];
+const KEY_PREFIX = 'gsk_';
+const GROQ_KEYS_URL = 'https://console.groq.com/keys';
+const MODEL_LABEL = 'llama-3.3-70b-versatile';
 
 export default function SettingsModal({ open, settings, onSave, onClose }: SettingsModalProps) {
   const [draftKey, setDraftKey] = useState(settings.apiKey);
-  const [draftModel, setDraftModel] = useState<ModelId>(settings.model);
   const [reveal, setReveal] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    setDraftKey(settings.apiKey);
-    setDraftModel(settings.model);
-  }, [open, settings]);
+    if (open) setDraftKey(settings.apiKey);
+  }, [open, settings.apiKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,9 +34,14 @@ export default function SettingsModal({ open, settings, onSave, onClose }: Setti
 
   if (!open) return null;
 
+  const trimmed = draftKey.trim();
+  const isEmpty = trimmed.length === 0;
+  const looksValid = isEmpty || trimmed.startsWith(KEY_PREFIX);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSave({ apiKey: draftKey.trim(), model: draftModel });
+    if (!looksValid) return;
+    onSave({ apiKey: trimmed });
     onClose();
   };
 
@@ -81,70 +81,61 @@ export default function SettingsModal({ open, settings, onSave, onClose }: Setti
           </button>
         </div>
 
-        <label htmlFor="gemini-key" className="mb-1.5 block text-xs font-medium text-zinc-400">
-          Gemini API key
+        <label htmlFor="groq-key" className="mb-1.5 block text-xs font-medium text-zinc-400">
+          Groq API Key (<span className="font-mono">gsk_...</span>)
         </label>
         <div className="relative">
           <input
-            id="gemini-key"
+            id="groq-key"
             type={reveal ? 'text' : 'password'}
             value={draftKey}
             onChange={(event) => setDraftKey(event.target.value)}
-            placeholder="AIza..."
+            placeholder="gsk_..."
             autoComplete="off"
             spellCheck={false}
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 py-2.5 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+            aria-invalid={!looksValid}
+            aria-describedby="groq-key-help"
+            className={`w-full rounded-lg border bg-zinc-950 py-2.5 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 ${
+              looksValid
+                ? 'border-zinc-800 focus:border-indigo-500 focus:ring-indigo-500/30'
+                : 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/30'
+            }`}
           />
           <button
             type="button"
-            onClick={() => setReveal((v) => !v)}
+            onClick={() => setReveal((value) => !value)}
             aria-label={reveal ? 'Hide key' : 'Show key'}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-500 hover:text-zinc-200"
           >
             {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        <p className="mt-2 text-xs text-zinc-500">
-          Get a free key at{' '}
-          <a
-            href="https://aistudio.google.com/app/apikey"
-            target="_blank"
-            rel="noreferrer"
-            className="text-indigo-300 underline-offset-2 hover:underline"
-          >
-            Google AI Studio
-          </a>
-          . The key is sent to the simulator&apos;s own API route and forwarded to Google. It is never stored on the server.
+
+        <p id="groq-key-help" className="mt-2 text-xs text-zinc-500">
+          {looksValid ? (
+            <>
+              Create a free key at{' '}
+              <a
+                href={GROQ_KEYS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-300 underline-offset-2 hover:underline"
+              >
+                console.groq.com/keys
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              . The key is sent to this app&apos;s API route and forwarded to Groq. It is never stored on the server.
+            </>
+          ) : (
+            <span className="text-rose-300">Groq keys start with gsk_. Check the key and try again.</span>
+          )}
         </p>
 
-        <fieldset className="mt-5">
-          <legend className="mb-1.5 text-xs font-medium text-zinc-400">Model</legend>
-          <div className="grid gap-2">
-            {MODELS.map((model) => (
-              <label
-                key={model.id}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition ${
-                  draftModel === model.id
-                    ? 'border-indigo-500/60 bg-indigo-500/10'
-                    : 'border-zinc-800 hover:border-zinc-700'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="model"
-                  value={model.id}
-                  checked={draftModel === model.id}
-                  onChange={() => setDraftModel(model.id)}
-                  className="mt-1 accent-indigo-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-zinc-100">{model.label}</span>
-                  <span className="block text-xs text-zinc-500">{model.note}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5">
+          <p className="text-xs text-zinc-500">Model</p>
+          <p className="font-mono text-sm text-zinc-200">{MODEL_LABEL}</p>
+          <p className="text-xs text-zinc-500">Served by Groq Cloud with a free tier.</p>
+        </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">
           <button
@@ -164,7 +155,8 @@ export default function SettingsModal({ open, settings, onSave, onClose }: Setti
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-400"
+              disabled={!looksValid}
+              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Save
             </button>
